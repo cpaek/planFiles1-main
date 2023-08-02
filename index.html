@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+
+<head> <!-- Don't mess with this "Head" block. -->
+  <title>leaflet-map-csv</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+
+  <link rel="stylesheet" type="text/css" href="style.css">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.css" />
+
+  <style>
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+  </style>
+
+</head>
+
+<body>
+  <input type="file" id="csvFileUpload">
+  <div id="map"></div>
+
+
+  <!-- PLUG INS-->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet.featuregroup.subgroup/dist/leaflet.featuregroup.subgroup-src.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.js"></script>
+
+  <script>
+
+    //defines the map 
+    var map = L.map('map', {
+      center: [34.098907, -118.327759], // where the map zooms in to
+      zoom: 9 // can zoom from 0-18
+    });
+
+
+    //these are the map layers. this can be changed from choosing tiles from a website like: https://leaflet-extras.github.io/leaflet-providers/preview/
+    var light = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attribution">CARTO</a>'
+    }).addTo(map);
+
+    var terrain = L.tileLayer('https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.png', {
+      attribution: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://www.openstreetmap.org/copyright">ODbL</a>.'
+    });
+
+    var googleSat = L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+
+    var OpenStreetMap_DE = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    });
+
+
+    //this just creates the link from the layer titles to the variable
+    var baseLayers = {
+      "Carto Light Basemap": light,
+      "Stamen Terrain Basemap": terrain,
+      "Satellite Basemap": googleSat, 
+      "Chan's layer": OpenStreetMap_DE
+    };
+
+
+    //THIS IS THE SEARCH FUNCTION
+    var geocoder = L.Control.geocoder()
+      .on('markgeocode', function (event) {
+        var center = event.geocode.center;
+        L.marker(center).addTo(map);
+        map.setView(center, 13);
+        //L.circle(center, 900).addTo(map);  this creates a radius everytime you search
+      })
+      .addTo(map);
+
+
+
+    //this creates the toolbar to be able to draw on the map
+    var drawnFeatures = new L.FeatureGroup();
+    map.addLayer(drawnFeatures);
+
+    var drawControl = new L.Control.Draw({
+      edit:
+      {
+        featureGroup: drawnFeatures,
+        remove: true
+      },
+      draw: {
+        polygon:
+        {
+          shapeOptions:
+          {
+            color: 'red'
+          }
+        },
+        polyline:
+        {
+          shapeOptions:
+          {
+            color: 'green'
+          }
+        },
+        rect:
+        {
+          shapeOptions:
+          {
+            color: 'purple'
+          }
+        },
+        circle:
+        {
+          shapeOptions:
+          {
+            color: 'blue'
+          }
+        },
+        marker: false // follow this format if you don't want a certain shape
+      }
+    });
+
+    map.addControl(drawControl);
+
+
+    //this allows the drawings to be created, saved, and edited 
+    map.on("draw:created", function (e) {
+      var type = e.layerType;
+      var layer = e.layer;
+      drawnFeatures.addLayer(layer);
+    });
+
+    map.on("draw:edited", function (e) {
+      var layers = e.layers;
+      layers.eachLayer(function (layer) {
+      });
+    });
+
+    //this displays the layers for the map
+    var controlLayers = L.control.layers(baseLayers);
+
+
+    /** the next chunk of code creates the layers, markers, and marker clusters using the data file **/
+    var engineerLayers = {}; // Create an object to hold the engineer subgroups
+    var parentGroup = L.markerClusterGroup();
+    map.addLayer(parentGroup);
+    controlLayers.addTo(map);
+
+    // Parse CSV string, build Markers and
+    // populate Layer Groups
+    function parseCsv(csvString) {
+      var data = Papa.parse(csvString, {
+        header: true,
+        dynamicTyping: true
+      }).data;
+
+      for (var i in data) {
+        var row = data[i];
+        var engineer = row.ASSIGNED_TO;
+
+        if (!(engineer in engineerLayers)) {
+          // Each overlay that should actually be a part of MCG
+          // should be made as a Subgroup, with the MCG as their parent
+          engineerLayers[engineer] = L.featureGroup.subGroup(parentGroup, []);
+          controlLayers.addOverlay(engineerLayers[engineer], engineer);
+        }
+
+        var marker = L.circleMarker([row.LATITUDE, row.LONGITUDE], {
+          radius: 10,
+          stroke: true,
+          color: getColor(engineer),
+          opacity: 1,
+          weight: 1,
+          fill: true,
+          fillColor: getColor(engineer),
+          fillOpacity: 0.5
+        }).bindPopup('Plan File: ' + row.PF_NO + '</br>' + 'Engineer: ' + row.ASSIGNED_TO + '</br>' + ' Date Received: ' + row.DATE + '</br>' + 'Status: ' + row.STATUS);
+
+        // Add the marker only to its overlay
+        marker.addTo(engineerLayers[engineer]);
+      }
+    };
+
+    // $.get('\data.csv', parseCsv);// pretty sure this doesn't do anything but not deleting it until sure
+
+    //this reads the file that is uploaded into the uploaded file button
+    $('#csvFileUpload').change(function (e) {
+      var file = e.target.files[0];
+      var reader = new FileReader();
+
+      // Read file contents
+      reader.onload = function (e) {
+        var csv = e.target.result;
+        var lines = csv.split("\n");
+        var csvWithoutLastLine = lines.slice(0, -1).join("\n");
+        parseCsv(csvWithoutLastLine);
+        // Parse, build Markers and populate Layer Groups
+        //parseCsv(csv);
+      };
+
+      reader.readAsText(file);
+    });
+
+
+
+
+    // Must change this if engineers ever change!!! 
+    function getColor(engineer) {
+      switch (engineer) {
+        case 'M. Salem':
+          return 'green';
+        case 'D.Castillo':
+          return 'orange';
+        case 'S. Rubalcava':
+          return 'purple';
+        case 'S. Tabesh':
+          return 'blue';
+        case 'C. Paek':
+          return 'red';
+        default:
+          return 'black';
+      }
+    }
+
+//****IF YOU ARE GETTING AN UNDEFINED LAYER, MAKE SURE TO GET RID OF ANY EXTRA SPACE IN THE CSV FILE 
+  </script>
+</body>
+
+</html>
